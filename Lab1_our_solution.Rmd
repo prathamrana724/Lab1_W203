@@ -40,7 +40,7 @@ suppressPackageStartupMessages({
 
 ```{r load-and-clean-data, include=FALSE}
 # ---- Data path ----
-DATA_PATH <- 'Data.csv'
+DATA_PATH <- 'anes_timeseries_2024_csv_20250808.csv'
 
 # ---- Load ANES 2024 and select variables ----
 # V240001: Case ID | V241025: Party of registration | V241335: Trust in news media
