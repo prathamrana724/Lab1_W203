@@ -1,0 +1,240 @@
+---
+title: "Do Democrats and Republicans Differ in Media Trust?"
+author: "Odysseus Kaloidas, Ayush Narayan, Pratham Rana, Talita Mesquita"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    fig_caption: true
+    number_sections: false
+  html_document:
+    df_print: paged
+  word_document: default
+urlcolor: blue
+fontsize: 10pt
+geometry: margin=1in
+header-includes:
+  - \usepackage{titlesec}
+  - \titlespacing*{\section}{0pt}{0.8ex plus .2ex minus .1ex}{0.6ex}
+  - \titlespacing*{\subsection}{0pt}{0.8ex}{0.4ex}
+  - \titlespacing*{\subsubsection}{0pt}{0.6ex}{0.3ex}
+  - \usepackage{titling}
+  - \setlength{\droptitle}{-7em}
+  - \preauthor{\begin{center}}\postauthor{\par\end{center}\vspace{-1.5em}}
+  - \predate{\begin{center}}\postdate{\par\end{center}\vspace{-1.5em}}
+  - \pretitle{\begin{center}\LARGE}\posttitle{\par\end{center}\vspace{-1.5em}}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, 
+                      fig.align = 'center', fig.width = 6.8, fig.height = 2.8, dpi = 300)
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(ggplot2)
+  library(janitor)
+  library(knitr)
+  library(patchwork)
+  library(scales)
+})
+```
+
+```{r load-and-clean-data, include=FALSE}
+# ---- Data path ----
+DATA_PATH <- 'Data.csv'
+
+# ---- Load ANES 2024 and select variables ----
+# V240001: Case ID | V241025: Party of registration | V241335: Trust in news media
+raw <- read.csv(DATA_PATH)
+sub <- raw[, c('V240001','V241025','V241335')]
+colnames(sub) <- c('case_id','party','media_trust')
+
+# ---- Keep only valid categories ----
+# Party: 1=Democrat, 2=Republican; Trust: 1..5 (exclude special missings)
+n_original <- nrow(sub)
+analytic <- sub %>%
+  filter(party %in% c(1,2), media_trust %in% 1:5) %>%
+  mutate(
+    party_label = factor(party, levels = c(1,2), labels = c('Democrat','Republican')),
+    trust_label = factor(media_trust, levels = 1:5,
+                         labels = c('None (1)','A little (2)','Moderate (3)','A lot (4)','Great deal (5)'),
+                         ordered = TRUE)
+  )
+
+n_clean   <- nrow(analytic)
+n_removed <- n_original - n_clean
+n_dem     <- sum(analytic$party_label == 'Democrat')
+n_rep     <- sum(analytic$party_label == 'Republican')
+
+# Group medians (on 1..5 scale)
+med_dem <- median(analytic$media_trust[analytic$party_label == 'Democrat'])
+med_rep <- median(analytic$media_trust[analytic$party_label == 'Republican'])
+
+# High/low trust percentages (FIXED: within-party percentages)
+pct_dem_high <- round(100 * mean(analytic$media_trust[analytic$party_label == 'Democrat'] >= 4), 0)
+pct_rep_high <- round(100 * mean(analytic$media_trust[analytic$party_label == 'Republican'] >= 4), 0)
+pct_dem_low  <- round(100 * mean(analytic$media_trust[analytic$party_label == 'Democrat'] <= 2), 0)
+pct_rep_low  <- round(100 * mean(analytic$media_trust[analytic$party_label == 'Republican'] <= 2), 0)
+
+# ---- Effect size: Cliff's delta & probability of superiority (Vargha–Delaney A) ----
+dem_trust <- analytic$media_trust[analytic$party_label == 'Democrat']
+rep_trust <- analytic$media_trust[analytic$party_label == 'Republican']
+pairs_dem_higher <- sum(outer(dem_trust, rep_trust, '>'))
+pairs_rep_higher <- sum(outer(dem_trust, rep_trust, '<'))
+TIES <- sum(outer(dem_trust, rep_trust, '=='))
+TOTAL <- length(dem_trust) * length(rep_trust)
+cliffs_delta <- (pairs_dem_higher - pairs_rep_higher) / TOTAL
+A_prob <- (cliffs_delta + 1) / 2  # Vargha–Delaney A
+```
+
+# Introduction
+
+Trust in news media shapes which messages voters accept as credible, which channels they consume, and how effectively campaigns mobilize supporters. When Democrats and Republicans systematically differ in media trust, this creates distinct information ecosystems with implications for message credibility, fact-checking uptake and misinformation exposure. Political campaigns invest substantial resources understanding audience communication and partisan differences in media trust directly affect strategies and democratic discourse. Any gap in trust has serious implications for democratic engagement and civic discourse. Confidence in the media is fundamental to an informed electorate and declining trust raises concerns about misinformation and the ability of citizens to agree on shared facts[^1]. This analysis examines whether meaningful differences exist between registered Democrats and Republicans in reported media trust, assessing both statistical and practical significance. **Do Democrats and Republicans differ in the level of trust in the news media?** We formally test whether the distribution of media trust on an ordinal scale.
+
+[^1]: Pew Research Center. (2025, August 20). How Americans view journalists in the digital age.
+
+# Data
+
+Before conducting any tests or examining plots, we pre-specify our analysis plan to prevent fishing expeditions: **(1) Comparison:** Democrats versus Republicans on media trust (ordinal, 1–5 scale). **(2) Test:** Wilcoxon rank-sum test (appropriate for ordinal data, two independent groups). **(3) Order:** This is our single planned comparison; we conduct one test only.
+
+**Party Affiliation (Grouping Variable).** We operationalize party affiliation using the ANES variable for party registration (V241025). Respondents coded as 1 are classified as Democrats, while those coded as 2 are classified as Republicans. We exclude those registered as independent (coded as 4), another party (coded as 5), and those with inapplicable, don't know, or refused responses to maintain a clear two-group comparison. We chose to use V241025 to identify who is Democrat/Republican to ensure a comparison between distinct groups of officially affiliated partisans. While this excludes independents who 'lean' towards a party, focusing on registered members aims to reduce ambiguity and potentially yield clearer and less noisy conclusions specifically about these core groups.
+
+**Media Trust (Outcome Variable).** We operationalize media trust using ANES variable V241335: "How much of the time can you trust the news media to report the news fairly?" Responses follow a five-point Likert scale (1=None, 2=A little, 3=Moderate, 4=A lot, 5=Great deal), which we treat as **ordinal** since we cannot assume equal intervals between categories. This single-item measure has limitations, as respondents may interpret "news media" differently (ex: national versus local, broadcast versus print).
+
+**Data Cleaning.** We remove observations with missing or invalid values for either party affiliation or media trust, ensuring analysis of only complete cases with valid responses. We filtered for values 1 (Democrats) and 2 (Republicans) for V241025 (Party Affiliation), hence we excluded responses -9, -8, -1, 4 and 5 (Refused, Don't Know, Inapplicable, None or Independent, and Another Party). For V241335 (Media Trust) we only included values 1 through 5 like mentioned above. We excluded values: -9, -8, and -1 (Refused, Don't Know, Inapplicable respectively).
+
+Our analysis uses data from the **2024 American National Election Studies (ANES) Time Series Study**. While the ANES provides survey weights for population level inference, we analyze unweighted data, limiting our conclusions to ANES respondents rather than the U.S. population. As observational data, our findings represent associations rather than causal effects. All numbers reported in this document are programmatically generated using inline R code to ensure full reproducibility.
+
+From `r format(n_original, big.mark=',')` observations, we analyze `r format(n_clean, big.mark=',')` respondents (`r format(n_dem, big.mark=',')` Democrats, `r format(n_rep, big.mark=',')` Republicans) after removing `r format(n_removed, big.mark=',')` cases with missing/invalid data.
+
+```{r summary-table}
+analytic %>%
+  group_by(party_label) %>%
+  summarize(
+    n = n(),
+    Median = median(media_trust),
+    Mean = round(mean(media_trust), 2),
+    SD = round(sd(media_trust), 2),
+    `High Trust (>=4) %` = round(100 * mean(media_trust >= 4), 0),
+    `Low Trust (<=2) %`  = round(100 * mean(media_trust <= 2), 0)
+  ) %>%
+  kable(caption = 'Summary Statistics: Media Trust by Party')
+```
+
+The summary table reveals notable differences. Democrats report median trust of `r med_dem` while Republicans report `r med_rep`—a full one-level difference. Approximately `r pct_dem_high`% of Democrats report high trust (4 or 5) compared to `r pct_rep_high`% of Republicans. Conversely, `r pct_rep_low`% of Republicans report low trust (1 or 2) versus `r pct_dem_low`% of Democrats. These values are taken directly from the table above to ensure consistency between text and tabulated results.
+
+```{r plots-side-by-side, fig.height=2.8, fig.width=7, fig.cap='Media trust distribution by political party affiliation'}
+
+# Define a professional color palette
+trust_colors <- c("#d73027", "#fc8d59", "#fee090", "#91bfdb", "#4575b4")
+party_colors <- c("Democrat" = "#4575b4", "Independent" = "#91bfdb", "Republican" = "#d73027")
+
+# Left: stacked shares across trust levels
+left_plot <- analytic %>%
+  count(party_label, trust_label) %>%
+  group_by(party_label) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = party_label, y = pct, fill = trust_label)) +
+  geom_col(position = 'fill', width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format(), 
+                     expand = c(0, 0)) +
+  scale_fill_manual(values = trust_colors) +
+  labs(x = NULL, 
+       y = 'Percentage (%)', 
+       fill = 'Trust Level',
+       title = 'Media Trust Distribution by Party',
+       subtitle = 'Stacked proportions across trust levels(Figure 1)') +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(color = "gray40", size = 9),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right",
+    legend.title = element_text(face = "bold", size = 9)
+  )
+
+# Right: high trust percentage
+high_trust_data <- analytic %>% 
+  group_by(party_label) %>% 
+  summarize(pct_high = 100 * mean(media_trust >= 4))
+
+right_plot <- ggplot(high_trust_data, aes(x = party_label, y = pct_high, fill = party_label)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = paste0(round(pct_high, 1), '%')), 
+            vjust = -0.5, 
+            size = 3.5,
+            fontface = "bold") +
+  scale_fill_manual(values = party_colors) +
+  labs(x = NULL, 
+       y = 'Percentage (%)', 
+       title = 'High Media Trust by Party',
+       subtitle = 'Respondents with trust score ≥ 4(Figure 2)') +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(color = "gray40", size = 9),
+    legend.position = 'none',
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)),
+                     limits = c(0, NA))
+
+left_plot + right_plot +
+  plot_annotation(
+    theme = theme(plot.caption = element_text(color = "gray50", size = 10))
+  )
+```
+
+*Left: Distribution of media trust by party (stacked proportions). Right: High trust percentages.*
+
+The left panel shows Republicans concentrate heavily in lower trust categories while Democrats spread more across the spectrum with greater representation in higher categories. The right panel highlights the partisan gap: Democrats are substantially more likely to report high media trust.
+
+# Methodology & Results
+
+For ordinal outcomes, we use the Wilcoxon rank-sum test's hypothesis of comparisons. Let X represent a Democrat's trust and Y a Republican's trust on the 1–5 scale.
+
+**Null Hypothesis (H0):** P(X>Y) = P(X<Y)
+
+The probability that a randomly selected Democrat has higher trust than a randomly selected Republican equals the probability that a randomly selected Republican has higher trust than a randomly selected Democrat.
+
+**Alternative Hypothesis (H1):** P(X>Y) does not equal P(X<Y) (two-sided)
+
+The probability that a randomly selected Democrat has higher trust than a randomly selected Republican differs from the probability that a randomly selected Republican has higher trust than a randomly selected Democrat.
+
+We select the **Wilcoxon rank-sum test** (hypothesis of comparisons version), appropriate for comparing two independent groups on an ordinal outcome.
+
+**Assumption 1: (At least) Ordinal Scale.** Our five point Likert scale with clearly ordered categories from "None" to "Great deal" satisfies this requirement. The Wilcoxon test works with ranks, requiring only that we can order responses, not that intervals between categories are equal.
+
+**Assumption 2: IID Data (Independence & Identical Distribution).**
+
+- **Independence (I).** Each row represents one respondent with one observation per person, supporting individual-level independence. Latent dependencies (ex: household or geographic clustering) may exist but would primarily affect standard errors rather than effect direction.
+
+- **Identical Distribution (ID) within groups.** All Democrats and Republicans answer the same question on the same 1–5 scale under identical measurement protocols. Within group distributions appear consistent with the ID assumption.
+
+```{r test-output, echo=TRUE, results='hide'}
+wilcox_result <- wilcox.test(media_trust ~ party_label, data = analytic, exact = FALSE, correct = TRUE)
+```
+
+The Wilcoxon rank-sum test yields a test statistic of W = `r format(wilcox_result$statistic, big.mark=',')` with p-value `r if(wilcox_result$p.value < 2.2e-16) "< 2.2e-16" else format.pval(wilcox_result$p.value, digits = 3)`.
+
+```{r effect-size-table}
+kable(data.frame(
+  Cliffs_Delta = round(cliffs_delta, 3),
+  Vargha_Delaney_A = round(A_prob, 3),
+  Pairs_Dem_Higher = format(pairs_dem_higher, big.mark=','),
+  Pairs_Rep_Higher = format(pairs_rep_higher, big.mark=','),
+  Pairs_Tied = format(TIES, big.mark=','),
+  Total_Pairs = format(TOTAL, big.mark=',')
+), caption = 'Effect Size and Pairwise Comparisons')
+```
+
+**Statistical Significance.** The Wilcoxon test yields strong evidence against the null hypothesis. The observed difference is highly unlikely under the null. We reject H0 and conclude that P(X>Y) is not equal to P(X<Y). Democrats and Republicans differ significantly in their probability of ranking higher on media trust.
+
+**Practical Significance.** The median trust gap (Democrat `r med_dem` versus Republican `r med_rep`) represents a full one-level shift. **Cliff's delta** is `r round(cliffs_delta, 3)`, which reflects the difference between the probabilities that a randomly chosen Democrat exceeds a randomly chosen Republican and vice versa. The **Vargha–Delaney A** statistic is `r round(A_prob, 3)`, implying that in approximately **`r round(100*A_prob, 0)`%** of random Democrat–Republican pairs, the Democrat reports higher trust. This probability of superiority interpretation comes from A, not from Cliff's delta. The difference is both statistically significant and practically meaningful, with implications for political communication strategies and campaign effectiveness.
+
+# Overall Effect
+
+This analysis demonstrates a clear partisan gap in media trust with Democrats reporting significantly higher trust than Republicans. Important limitations affect interpretation, our observational data cannot establish causation; our single-item Likert measure may not capture media trust complexity; and we analyzed unweighted data, limiting conclusions to ANES respondents rather than the U.S. population. Future research could examine mechanisms underlying these differences, investigate relationships between media trust and actual consumption patterns, or test interventions to increase trust across partisan lines through experimental designs with preregistered outcomes.
+
+**Repository:** https://github.com/prathamrana724/Lab1_W203
